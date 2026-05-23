@@ -17,32 +17,12 @@
 
 > Generate a Swiss roll — a 2-D surface curled up in 3-D — and embed it in 10-D by adding 7 noise dimensions. PCA, by definition, can only project. t-SNE can *unroll*. The 3-D plot below is the truth; the 4-panel comparison shows whether each algorithm recovered it.
 
-<table>
-<tr>
-<td align="center" width="33%">
-<sub>PCA (linear)</sub><br>
-<b style="font-size:1.5em; color:#C04040;">trustworthiness 0.971</b><br>
-<sub>preserves global, can't unroll</sub>
-</td>
-<td align="center" width="33%">
-<sub>t-SNE (perp = 30)</sub><br>
-<b style="font-size:1.5em; color:#3B6EA8;">trustworthiness 0.999</b><br>
-<sub>local structure preserved beautifully</sub>
-</td>
-<td align="center" width="33%">
-<sub>Noise rejection</sub><br>
-<b style="font-size:1.5em; color:#3B6EA8;">PC4–PC10 ≈ 0.3%</b><br>
-<sub>PCA correctly ignores all 7 noise dims</sub>
-</td>
-</tr>
-</table>
-
-| Method | Trustworthiness @k=10 | Captures global geometry? | Captures local geometry? |
-|---|---:|:---:|:---:|
-| PCA | 0.971 | ✅ | ⚠️  fails to unroll non-linear manifolds |
-| t-SNE (perp=5) | 0.998 | ❌ (no notion of global) | ✅ |
-| **t-SNE (perp=30)** | **0.999** | ❌ | **✅** |
-| t-SNE (perp=80) | 0.999 | ❌ | ✅ (but smoother) |
+<p align="center">
+  <img src="https://img.shields.io/badge/PCA_Top--3_Variance-98.1%25-3B6EA8?style=for-the-badge" alt="PCA top-3 cumulative variance 98.1%">
+  <img src="https://img.shields.io/badge/Best_t--SNE_Trustworthiness-0.999-3B6EA8?style=for-the-badge" alt="Best t-SNE trustworthiness 0.999">
+  <img src="https://img.shields.io/badge/PCA_Trustworthiness-0.971-7A7A7A?style=for-the-badge" alt="PCA trustworthiness 0.971">
+</p>
+<p align="center"><sub>Top-3 variance &rarr; <b>PC1–PC3</b> (0.383 + 0.320 + 0.278)&nbsp;·&nbsp;Best trustworthiness &rarr; <b>t-SNE perp = 30</b>&nbsp;·&nbsp;values from <code>results/metrics.json</code></sub></p>
 
 <sub>**Headline finding:** these two methods don't compete for the same prize. PCA gives you a faithful global picture but can't unroll curvature. t-SNE gives you a perfect local picture but distorts global distances on purpose. Choose by the question, not by which gives the prettier plot.</sub>
 
@@ -105,6 +85,58 @@ The 1-D parameter $t$ is saved alongside $X$ and used as a colormap in every fig
 ---
 
 ## Dashboard
+
+### Embedding scorecard
+
+<table>
+<tr><th align="left">Method</th><th>Trustworthiness @k=10</th><th>Notes</th></tr>
+<tr>
+  <td><b>PCA</b></td>
+  <td align="center"><img src="https://img.shields.io/badge/0.971-7A7A7A?style=flat-square" alt="0.971"></td>
+  <td>linear projection; preserves global variance, cannot unroll curvature</td>
+</tr>
+<tr>
+  <td><b>t-SNE</b> <sub>perp = 5</sub></td>
+  <td align="center"><img src="https://img.shields.io/badge/0.998-3B6EA8?style=flat-square" alt="0.998"></td>
+  <td>micro-neighborhoods; fragmented layout</td>
+</tr>
+<tr>
+  <td><b>t-SNE</b> <sub>perp = 30</sub></td>
+  <td align="center"><img src="https://img.shields.io/badge/0.999-3B6EA8?style=flat-square" alt="0.999"></td>
+  <td>balanced sweet spot; smooth color gradient</td>
+</tr>
+<tr>
+  <td><b>t-SNE</b> <sub>perp = 80</sub></td>
+  <td align="center"><img src="https://img.shields.io/badge/0.999-3B6EA8?style=flat-square" alt="0.999"></td>
+  <td>macro-neighborhoods; softer cluster borders</td>
+</tr>
+</table>
+
+<table>
+<tr><th align="left">PC</th><th>Explained Variance Ratio</th><th>Cumulative</th></tr>
+<tr>
+  <td><b>PC1</b></td>
+  <td align="center"><img src="https://img.shields.io/badge/0.383-3B6EA8?style=flat-square" alt="0.383"></td>
+  <td align="center"><img src="https://img.shields.io/badge/0.383-7A7A7A?style=flat-square" alt="0.383"></td>
+</tr>
+<tr>
+  <td><b>PC2</b></td>
+  <td align="center"><img src="https://img.shields.io/badge/0.320-3B6EA8?style=flat-square" alt="0.320"></td>
+  <td align="center"><img src="https://img.shields.io/badge/0.703-7A7A7A?style=flat-square" alt="0.703"></td>
+</tr>
+<tr>
+  <td><b>PC3</b></td>
+  <td align="center"><img src="https://img.shields.io/badge/0.278-3B6EA8?style=flat-square" alt="0.278"></td>
+  <td align="center"><img src="https://img.shields.io/badge/0.981-3B6EA8?style=flat-square" alt="0.981"></td>
+</tr>
+<tr>
+  <td><b>PC4–PC10</b></td>
+  <td align="center"><img src="https://img.shields.io/badge/~0.003_each-7A7A7A?style=flat-square" alt="~0.003 each"></td>
+  <td align="center"><img src="https://img.shields.io/badge/1.000-7A7A7A?style=flat-square" alt="1.000"></td>
+</tr>
+</table>
+
+<sub>Blue = best / informative signal &middot; Gray = neutral / noise floor &middot; values from <code>results/metrics.json</code></sub>
 
 ### 1. The truth — what we're trying to recover
 
