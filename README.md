@@ -13,6 +13,10 @@
 
 ---
 
+<p align="center">
+  <a href="https://linnps.github.io/ml-04-pca-tsne/"><img src="https://img.shields.io/badge/View_Live_Dashboard-0E2841?style=for-the-badge&amp;logo=githubpages&amp;logoColor=white" alt="View live dashboard"></a>
+</p>
+
 ## At a glance
 
 > Generate a Swiss roll — a 2-D surface curled up in 3-D — and embed it in 10-D by adding 7 noise dimensions. PCA, by definition, can only project. t-SNE can *unroll*. The 3-D plot below is the truth; the 4-panel comparison shows whether each algorithm recovered it.
