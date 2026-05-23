@@ -48,6 +48,62 @@
 
 ---
 
+## Experimental setup
+
+Everything below is fixed by `seed = 42` and reproduces bit-for-bit on any machine with the pinned library versions.
+
+### Data-generating process
+
+The dataset is fully synthetic, constructed so the *true* intrinsic dimensionality is known. The generator (`generate_data.py`) works in three steps:
+
+1. **Manifold.** Sample a 1-D position-along-the-roll parameter $t \sim \text{Uniform}(1.5\pi,\, 4.5\pi)$ and an independent height $h \sim \text{Uniform}(0, 21)$. These two scalars are the *intrinsic* degrees of freedom — the manifold is 2-D.
+2. **Swiss roll in 3-D.** Embed the manifold into 3-D via the map $(x, y, z) = (t\cos t,\; h,\; t\sin t)$. This wraps the 2-D surface into a spiral ("roll"); nearby points along the surface can be far apart in Euclidean 3-D space. That curvature is exactly what PCA cannot handle.
+3. **Noise padding.** Concatenate 7 independent Gaussian-noise columns $\mathcal{N}(0,\, 0.6^2)$ to produce the 10-D ambient matrix $X \in \mathbb{R}^{1500 \times 10}$.
+
+The 1-D parameter $t$ is saved alongside $X$ and used as a colormap in every figure: a good projection should produce a smooth color gradient, signaling that the latent order has been preserved.
+
+| Parameter | Value | Why it's set this way |
+|---|---|---|
+| `n_samples` | 1500 | Large enough that PCA's explained-variance estimates are stable and t-SNE's stochastic optimization converges cleanly. |
+| `n_noise_dims` | 7 | Creates a 10-D ambient space where 70 % of the columns are distractors — realistic for tabular data, and enough to confuse a naive linear projection. |
+| `noise_std` | 0.6 | Noise variance ≈ 0.36; the three signal dimensions each carry much more variance than this, so PCA's scree plot separates them visibly (three tall bars, seven flat ones). |
+| `seed` | 42 | Controls NumPy's `default_rng`; drives $t$, $h$, and all noise columns. t-SNE uses a separate `random_state=42`. |
+| Intrinsic dimension | 2 | Two free parameters ($t$ and $h$) define the manifold — the "ground truth" that every algorithm is measured against. |
+| Ambient dimension | 10 | 3 informative + 7 noise. |
+| Manifold shape | Swiss roll | A classical benchmark for non-linear methods: the curvature breaks PCA by design, so the experiment has a known correct answer. |
+
+### Preprocessing
+
+- **No standardization is applied here.** This is deliberate: the three Swiss-roll coordinates already share a common geometric scale, and the noise dimensions are constructed to match. Applying `StandardScaler` would not change PCA's ability to unroll the manifold (because unrolling is non-linear regardless), and it would obscure the intuitive scree-plot story — the contrast between the high-variance informative dimensions and the low-variance noise dimensions is exactly what we want to see. For PCA on data with heterogeneous natural units (e.g. millimetres vs. kilograms), standardization would be essential.
+- **t-SNE is initialized with `init="pca"`** rather than random initialization. This gives the optimizer a warm start and significantly reduces run-to-run layout variability, especially at low perplexity.
+
+### Algorithm configuration
+
+**PCA:**
+
+| Parameter | Value | Why |
+|---|---|---|
+| `n_components` | 2 | Match t-SNE's output dimension so side-by-side scatter plots are comparable. A second full-rank PCA is run separately to collect all 10 explained-variance ratios for the scree plot. |
+| Solver | default (SVD-based) | Deterministic; no random state needed. |
+
+**t-SNE (run three times, one per perplexity):**
+
+| Parameter | Value | Why |
+|---|---|---|
+| `n_components` | 2 | 2-D embedding for visual inspection. |
+| `perplexity` | 5 / 30 / 80 | Covering three regimes: micro-neighborhoods (5), balanced (30), macro-neighborhoods (80). Together they show perplexity's effect on layout directly. |
+| `learning_rate` | `"auto"` | scikit-learn sets this to `max(N / early_exaggeration / 4, 50)` — a reasonable adaptive default that avoids the "collapsed embedding" failure mode. |
+| `n_iter` | 1000 | sklearn default; sufficient for convergence at these sample sizes. |
+| `init` | `"pca"` | Warm-start reduces variance across runs and avoids initialization-dominated layouts. |
+| `metric` | Euclidean (default) | Consistent with the ambient Euclidean geometry of the padded data. |
+| `random_state` | 42 | Seeds t-SNE's gradient-descent randomness; the layout is still not guaranteed to be globally unique (see Validation section). |
+
+### Environment
+
+`python ≥ 3.10` · `numpy ≥ 1.24` · `pandas ≥ 2.0` · `scikit-learn ≥ 1.3` · `matplotlib ≥ 3.7`
+
+---
+
 ## Dashboard
 
 ### 1. The truth — what we're trying to recover
@@ -80,6 +136,82 @@ A nice diagnostic that PCA can do but t-SNE cannot: tell you *how many dimension
 ![trustworthiness](assets/04_trustworthiness.png)
 
 Trustworthiness ∈ [0, 1] measures: *of the k nearest neighbors of point p in the projection, what fraction were actually neighbors of p in the original space?* All three t-SNE projections sit at ≥ 0.998 across every k tested. PCA stays at ~0.97 — high but not perfect, because folding a curved manifold flat is never quite faithful. Above ~0.95 the differences are small in human terms; the qualitative gap in panel 2 is the more important diagnostic.
+
+---
+
+## Validation methodology
+
+Validating dimensionality reduction is genuinely harder than validating supervised learning: there is no label to predict and therefore no obvious held-out accuracy to compute. This project uses three complementary lenses.
+
+### Lens 1 — PCA explained-variance ratio
+
+PCA decomposes the data's covariance matrix into orthogonal components ordered by decreasing variance. The *explained-variance ratio* of component $k$ is
+
+$$\text{EVR}_k = \frac{\lambda_k}{\sum_{j=1}^{d} \lambda_j}$$
+
+where $\lambda_k$ is the $k$-th eigenvalue (variance along PC$k$) and $d = 10$ is the ambient dimension. A *cumulative* EVR close to 1.0 after $m$ components tells you the data is effectively $m$-dimensional.
+
+This metric is meaningful for PCA but has no analogue in t-SNE — t-SNE does not produce components, does not rank them, and does not report variance explained.
+
+### Lens 2 — Trustworthiness
+
+For any projection method, trustworthiness at neighborhood size $k$ answers: *of the $k$ nearest neighbors of point $p$ in the 2-D projection, what fraction were genuinely neighbors of $p$ in the original 10-D space?*
+
+Formally, for $n$ points and projection producing embedding $Z$:
+
+$$T(k) = 1 - \frac{2}{nk(2n - 3k - 1)} \sum_{i=1}^{n} \sum_{j \in \mathcal{U}_k(i)} (r(i,j) - k)$$
+
+where $r(i,j)$ is the rank of point $j$ in $i$'s high-D neighborhood and $\mathcal{U}_k(i)$ is the set of $k$ nearest neighbors of $i$ in the low-D space that were *not* among $i$'s $k$ nearest neighbors in high-D. $T(k) \in [0, 1]$; 1.0 means no false neighbors were introduced.
+
+Important: trustworthiness measures *local fidelity only*. A $T(k) = 1.0$ embedding could still wildly distort global distances — t-SNE is designed to do exactly this.
+
+### What each metric can and cannot certify
+
+| Metric | Certifies | Cannot certify |
+|---|---|---|
+| Explained-variance ratio (PCA only) | How much of the original variance is retained in the projection. | Whether non-linear structure (curvature) was recovered. |
+| Cumulative EVR after 3 PCs ≈ 98 % | The data is effectively 3-D (3 informative dims dominate). | That those 3 dims are the "right" 3 (they are, for PCA on this manifold). |
+| Trustworthiness @k | Local neighborhood integrity — false neighbors introduced by the projection. | Global distance faithfulness; cluster-to-cluster distances. |
+| High t-SNE trustworthiness | Local clusters in the embedding reflect true locality. | Inter-cluster spacing. Two clusters that look far apart in t-SNE may or may not be far apart in reality. |
+| High PCA trustworthiness | The linear projection didn't catastrophically rearrange neighborhoods. | That the manifold was unrolled. PCA can score 0.97 while visually folding the roll onto itself. |
+
+### Full results
+
+All numbers are exact values from `results/metrics.json`, regenerated on every `python train.py`.
+
+**PCA explained-variance ratio (all 10 components):**
+
+| Component | EVR | Cumulative |
+|---|---:|---:|
+| PC1 | 0.3829 | 0.3829 |
+| PC2 | 0.3196 | 0.7025 |
+| PC3 | 0.2783 | 0.9808 |
+| PC4 | 0.0031 | 0.9839 |
+| PC5 | 0.0029 | 0.9868 |
+| PC6 | 0.0028 | 0.9896 |
+| PC7 | 0.0028 | 0.9924 |
+| PC8 | 0.0027 | 0.9950 |
+| PC9 | 0.0026 | 0.9976 |
+| PC10 | 0.0025 | 1.0000 |
+
+<sub>PC1–PC3 account for **98.1 %** of total variance. PC4–PC10 (the 7 noise dimensions) each contribute 0.25–0.31 % — nearly uniform, which is the empirical signature of pure isotropic Gaussian noise.</sub>
+
+**Trustworthiness @ k = 10:**
+
+| Method | Trustworthiness @k=10 |
+|---|---:|
+| PCA (2 components) | 0.9706 |
+| t-SNE (perp = 5) | 0.9979 |
+| t-SNE (perp = 30) | 0.9989 |
+| t-SNE (perp = 80) | 0.9989 |
+
+<sub>Bold headline: all four projections score above 0.97. The local-fidelity gap between PCA and t-SNE is real but numerically modest — the *visual* gap in the projections panel is the more informative diagnostic here.</sub>
+
+### Reproducibility & determinism
+
+- **Data generation is deterministic.** A single `seed = 42` drives NumPy's `default_rng`, which controls $t$, $h$, and all noise draws. The 10-D matrix $X$ is therefore bit-for-bit identical across machines with matching library versions.
+- **PCA is deterministic.** The SVD solver has no randomness; given the same $X$ it will always produce the same components.
+- **t-SNE is stochastic even with `random_state=42`.** Gradient-descent optimization of the KL divergence is non-convex — the `random_state` seeds the initial step-direction noise, but different scikit-learn versions (or platforms with different floating-point rounding) may converge to visually different layouts. The trustworthiness numbers above are specific to scikit-learn ≥ 1.3 on this exact data. The *qualitative* finding (t-SNE unrolls; PCA does not; perplexity 30 gives a cleaner gradient than perplexity 5) is robust across seeds. The exact trustworthiness values should be treated as ± ~0.001.
 
 ---
 
@@ -152,6 +284,18 @@ Try `n_noise_dims=50` (PCA's noise rejection still works; t-SNE may need higher 
 ├── assets/                ← rendered dashboard figures (4 PNGs)
 └── results/metrics.json
 ```
+
+---
+
+## Notes on methodology & limitations
+
+Stated plainly so a reader can judge what the numbers do and don't support:
+
+- **t-SNE distances and cluster sizes are not interpretable.** The algorithm optimizes a locally-faithful probability match; it deliberately expands dense clusters and compresses sparse ones to fill the 2-D canvas evenly. Two clusters that look far apart (or one that looks bigger than another) may not be in the original space. Never use t-SNE embeddings for downstream distance-based reasoning.
+- **Perplexity sensitivity is not solved.** This experiment runs three perplexities (5, 30, 80) and calls perplexity 30 the "sweet spot" — but that conclusion is specific to 1,500 points on a Swiss roll. On data with different density, cluster count, or intrinsic scale, the same perplexity values would tell a different story. A general practice is to try at least five perplexities and look for structure that is stable across them.
+- **PCA assumes linear structure.** Projecting onto principal components finds the globally optimal *linear* subspace. On a curved manifold, no linear projection can unroll the curvature — the method's failure here is not a bug but the definition of "linear." The trustworthiness score (0.97) looks respectable in isolation, but the visual folding of the roll onto itself is invisible to that metric.
+- **Trustworthiness measures only one failure mode.** It catches false neighbors (points that appear close in the embedding but were far apart in 10-D). It does not catch missing neighbors (true neighbors that were scattered apart in the projection). A complementary metric, *continuity*, measures the latter — it is not computed here.
+- **Synthetic ≠ real.** A Swiss roll is a pedagogical construction with a perfectly clean manifold and independently Gaussian noise. Real high-dimensional data rarely has such clear separation between signal and noise variance, and the correct intrinsic dimensionality is never known in advance. The 98.1 % three-component variance story is trustworthy precisely because we built the data — on a real dataset, you would not know how many PCs represent "signal" versus "noise." The scree-plot elbow heuristic is the standard fallback, and it is imprecise.
 
 ---
 
